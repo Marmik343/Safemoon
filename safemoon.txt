@@ -1,0 +1,151 @@
+How safemoon works V2
+
+struct FeeTier {
+        uint256 ecoSystemFee;
+        uint256 liquidityFee;
+        uint256 taxFee;
+        uint256 ownerFee;
+        uint256 burnFee;
+        address ecoSystem;
+        address owner;
+    }
+
+    struct FeeValues {
+        uint256 rAmount;
+        uint256 rTransferAmount;
+        uint256 rFee;
+        uint256 tTransferAmount;
+        uint256 tEchoSystem;
+        uint256 tLiquidity;
+        uint256 tFee;
+        uint256 tOwner;
+        uint256 tBurn;
+    }
+
+
+_rOwned => address of user who will get reflections( that is rewards, but without the need to stake like other protocols)
+during initialization owner's address will be updated with _rTotal (value defined below). = 115792089237316195423570985008687907853269984665640564039000000000000000000000
+
+_towned => address of users who will not get reflections.
+
+MAX => ~unit256(0) = 115792089237316195423570985008687907853269984665640564039457584007913129639935
+
+_tTotal => total supply of safemoon token = 1000000000000000000000
+ 
+_rTotal => total supply of reflections token = 115792089237316195423570985008687907853269984665640564039000000000000000000000
+
+_tFeeTotal => total fees collected.
+
+_maxFee => maximum fee that can be charged = 1000
+
+_maxTxAmount => max transaction amount allowed at once. =  5000000000_000_000_000
+
+numTokensSellToAddToLiquidity => number of tokens required to sell to add liquidity = 500000000_000_000_000
+--------------------------------------------------------------------------------------------------------------------------------
+
+balanceOf() - Understanding this function
+if the account is excluded from receiving reflections then ` _tOwned ` mapping will be used to obtain the user's balance.
+else get balance of address from ` _rOwned ` mapping, but this is passed in the function tokenFromReflection() to obtain the 
+actual balance for user's who are not excluded from reflections,
+
+So now we look at the tokenFromReflection(), this function does the following:  
+1. rAmount(which is the current balance of the user) must be less than _rTotal (total reflections, this is defined above),
+2. this function then calls _getRate() and stores it into current rate,
+3. then divides the rAmount with the current rate to get the balance
+
+going to the _getRate() function:
+1. calls the funtion _getCurrentSupply() to obtain ` rSupply ` and ` tSupply ` 
+2. then performs rSuppy / tSupply
+
+going to the _getCurrentSupply() function:
+1. stores _rTotal in rSupply (this is 115792089237316195423570985008687907853269984665640564039000000000000000000000)
+2. stores _tTotal in tSupply (this is 1000000000000000000000 )
+
+3. runs a for loop on the ` _excluded ` array to check if the balance of this address obtained from ` _rOwned ` mapping \
+    is greater that ` rSupply ` OR balance of the ` _excluded ` address obtained from ` _tOwned `  mapping is greater than \
+    tSupply then return ` _rTotal ` and ` _tTotal `
+
+    if this condition fails then update ` rSupply ` and ` tSupply `
+
+    after this loop ends a new ` if ` statement is used to check rSupply < ( _rTotal / _tTotal) and return _rTotal and _tTotal
+
+    else return rSupply and tSupply, assuming the contract is running for the first time this will return rSupply and tSupply
+    which is 115792089237316195423570985008687907853269984665640564039000000000000000000000 and 1000000000000000000000 
+    respectively.
+
+4. Now going back to the _getRate(), we have rSupply and tSupply, divide the obtain this value,
+    
+    115792089237316195423570985008687907853269984665640564039000000000000000000000 / 1000000000000000000000
+    
+    = 115792089237316195423570985008687907853269984665640564039
+
+    this value is returned from the function _getRate().
+
+5. going back to the function tokenFromReflection(), we have the currentRate = 115792089237316195423570985008687907853269984665640564039
+    perform the operation rAmount/current rate,
+    
+    but what is rAmount?
+    
+    for this go back to the function balanceOf(), we can see that _rOwned[account] is used to get balance for not excluded users, and for owner this value is
+    115792089237316195423570985008687907853269984665640564039000000000000000000000
+
+    now performthe operation rAmount / current rate
+    
+    115792089237316195423570985008687907853269984665640564039000000000000000000000 / 115792089237316195423570985008687907853269984665640564039
+
+    = 1000000000000000000000
+
+    So this balance will be returned ( and checked this is the same values as _tTotal, this is the owners balance) 
+--------------------------------------------------------------------------------------------------------------------------------
+
+Transfer(), Understanding this function
+
+This funtion calls a private function _transfer() which handles the main logic, takes in the parameter from , to and amount.
+
+1. checks if the amount is less than _maxTxAmount (which is 5000000000000000000, defined above)
+2. sets a few variables and  checks a `if` block,
+3. if the block evaluates to true then set contractTokenBalance = numTokensSellToAddToLiquidity = 500000000000000000 , then calls swapAndLiquify(contractTokenBalance)
+
+going to the swapAndLiquify(contractTokenBalance)
+1. sets the variable ` half ` to contractTokenBalance/2 = 250000000000000000
+2. sets ` otherhalf ` = 250000000000000000
+3. sets the current BNB balance of contract in ` initialBalance`, this is done to know much much BNB the swap woudl create
+4. then calls the function swapTokensForBnb(half), 
+
+going to the function swapTokensForBnb(tokenAmount), here the tokenAmount is 250000000000000000
+1.calls the uniswap function to generate a token -> wbnb pair.
+
+this function will get the bnb for the tokens and store it in the contract balance.
+
+going back to the _transfer()
+
+4. obtains the new added BNB (new balance - old balance, caputures the difference)
+5. now add liquidity to uniswap using the addLiquidity(otherhalf , new balance)
+6. then calls the _tokenTransfer(address sender, address recipient, uint256 amount, uint256 tierIndex, bool takeFee), only call this when takeFee is true.
+7. depending if the sender or recipient is excluded from reflections calls funtions,
+    for example lets say the recipient is excluded from reflections, 
+    so the function _transferFromExcluded(address sender, address recipient, uint256 tAmount, uint256 tierIndex) will be called.
+
+
+8. this function that is _transferFromExcluded() calls the function _getValues(tAmount, tierIndex)
+    the _getValues() funtion will return the data present in the FeeValues Struct.
+    _getValues() calls two functions getTValues and getRvalues from tFeeValues Struct which is calculated using the calculatefees() 
+    and uses arithmetic operations using current rate and tValues for getting R values.
+    then called the _takeFee(), which will add(increase balance) the fee into the address which is the contract address, ecosystem and owner
+    then calls the _takeburn() in the _takeFee(), which will send the fees for burning to the burn wallet.
+    then _reflectFee(rFee , tFee), this function will subtract rFee from _rTotal and add tTee to _tTotal
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Notes:
+
+1. reflectionFromTokenInTiers() will return tier specific reflections.
+2. only onwer can add/remove a user to br eligible to get reflections
+    2.1 excludeFromReward() , a reflections balance is calculated and stored in _tOwned[account] mapping.
+    2.2 includeInReward() , here the _tOwned[account] is set to zero.
+
+setEcoSystemFeePercent(tierIndex,ecosystemFee),  Only Owner can make these function calls.
+1.  this function will set the fee percentage which the ecosystem address will take. based on the tierIndex, check if fees have changed using the function
+    checkFeesChanged(), and set the ecosystem fee, if tierIndex is 0 use the default fees.
+2. same logic setLiquidityFeePercent(), setTaxFeePercent(), setOwnerFeePercent(), setBurnFeePercent(), setEcoSystemFeeAddress(), setOwnerFeeAddress()
+
+
